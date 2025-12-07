@@ -1,12 +1,12 @@
 export const config = {
   // Enter your Hackatime (Slack) username here (leave empty to prompt user)
-  username: "", 
+  username: process.env.NEXT_PUBLIC_HACKATIME_USERNAME || "", 
   // Goal Mode: 'daily' (fixed hours/day) or 'total' (reach X hours by year end)
-  goalMode: "total",
+  goalMode: process.env.NEXT_PUBLIC_GOAL_MODE || "total",
   // Set your default daily goal in hours (for 'daily' mode)
-  dailyGoalHours: 1,
+  dailyGoalHours: Number(process.env.NEXT_PUBLIC_DAILY_GOAL_HOURS) || 1,
   // Set your target total hours for the year (for 'total' mode)
-  targetTotalHours: 225,
+  targetTotalHours: Number(process.env.NEXT_PUBLIC_TARGET_TOTAL_HOURS) || 225,
   // Minimum minutes to count as a "streak" day
-  streakMinMinutes: 1,
+  streakMinMinutes: Number(process.env.NEXT_PUBLIC_STREAK_MIN_MINUTES) || 1,
 };
