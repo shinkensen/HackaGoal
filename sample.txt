@@ -1,0 +1,721 @@
+const API_BASE = "https://hackatime.hackclub.com/api/v1/users";
+
+const app = {
+  userId: null,
+  data: {
+    daily: [],
+    totalSeconds: 0,
+    languages: {},
+    editors: {},
+    operatingSystems: {},
+  },
+  slides: [],
+  currentSlide: 0,
+  touchStartX: 0,
+  touchEndX: 0,
+
+  init: () => {
+    document.getElementById("start-btn").addEventListener("click", app.start);
+    document
+      .getElementById("prev-btn")
+      .addEventListener("click", app.prevSlide);
+    document
+      .getElementById("next-btn")
+      .addEventListener("click", app.nextSlide);
+
+    // Keyboard navigation
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowRight") app.nextSlide();
+      if (e.key === "ArrowLeft") app.prevSlide();
+    });
+
+    // Touch navigation
+    document.addEventListener("touchstart", (e) => {
+      app.touchStartX = e.changedTouches[0].screenX;
+    });
+
+    document.addEventListener("touchend", (e) => {
+      app.touchEndX = e.changedTouches[0].screenX;
+      app.handleSwipe();
+    });
+  },
+
+  handleSwipe: () => {
+    if (app.touchEndX < app.touchStartX - 50) app.nextSlide();
+    if (app.touchEndX > app.touchStartX + 50) app.prevSlide();
+  },
+
+  start: async () => {
+    const input = document.getElementById("user-id");
+    const id = input.value.trim();
+    if (!id) {
+      alert("Please enter a User ID");
+      return;
+    }
+    app.userId = id;
+
+    document.getElementById("login-screen").classList.remove("active");
+    document.getElementById("loading-screen").classList.add("active");
+
+    await app.fetchData();
+    app.processData();
+    app.generateSlides();
+
+    document.getElementById("loading-screen").classList.remove("active");
+    document.getElementById("wrapped-screen").classList.add("active");
+    app.showSlide(0);
+  },
+
+  fetchData: async () => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const startDate = new Date(`${currentYear}-01-01`);
+    const daysToFetch = [];
+
+    // Generate list of days from Jan 1 to Today
+    let d = new Date(startDate);
+    while (d <= today) {
+      daysToFetch.push(new Date(d));
+      d.setDate(d.getDate() + 1);
+    }
+
+    const totalDays = daysToFetch.length;
+    let completed = 0;
+    const updateProgress = () => {
+      completed++;
+      const pct = (completed / totalDays) * 100;
+      document.getElementById("progress-fill").style.width = `${pct}%`;
+    };
+
+    // Fetch in batches
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < daysToFetch.length; i += BATCH_SIZE) {
+      const batch = daysToFetch.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async (date) => {
+          try {
+            const stats = await app.fetchDayStats(date);
+            app.data.daily.push({
+              date: date,
+              stats: stats || {
+                total_seconds: 0,
+                languages: [],
+                operating_systems: [],
+                editors: [],
+              },
+            });
+          } catch (e) {
+            console.error(`Failed to fetch ${date}`, e);
+            app.data.daily.push({
+              date: date,
+              stats: {
+                total_seconds: 0,
+                languages: [],
+                operating_systems: [],
+                editors: [],
+              },
+            });
+          } finally {
+            updateProgress();
+          }
+        })
+      );
+    }
+  },
+
+  fetchDayStats: async (date) => {
+    // Convert to UTC ISO Midnight as per hackatime.tsx logic
+    // The file uses:
+    // const startDate = toUtcIsoMidnight(displayDate);
+    // const nextDay = new Date(displayDate); nextDay.setDate(...+1);
+    // const endDate = toUtcIsoMidnight(nextDay);
+
+    const toUtcIsoMidnight = (date) =>
+      new Date(
+        date.getFullYear(),
+        date.getMonth(),
+        date.getDate(),
+        0,
+        0,
+        0,
+        0
+      ).toISOString();
+
+    const start = toUtcIsoMidnight(date);
+    const nextDay = new Date(date);
+    nextDay.setDate(date.getDate() + 1);
+    const end = toUtcIsoMidnight(nextDay);
+
+    const url = `${API_BASE}/${app.userId}/stats?start_date=${start}&end_date=${end}`;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json.data;
+    } catch (e) {
+      return null;
+    }
+  },
+
+  processData: () => {
+    // Sort daily data by date
+    app.data.daily.sort((a, b) => a.date - b.date);
+
+    app.data.daily.forEach((day) => {
+      const seconds = day.stats.total_seconds;
+      app.data.totalSeconds += seconds;
+
+      // Aggregate Languages
+      if (day.stats.languages) {
+        day.stats.languages.forEach((lang) => {
+          if (!app.data.languages[lang.name]) app.data.languages[lang.name] = 0;
+          app.data.languages[lang.name] += lang.total_seconds;
+        });
+      }
+
+      // Also check editors
+      if (day.stats.editors) {
+        day.stats.editors.forEach((ed) => {
+          if (!app.data.editors[ed.name]) app.data.editors[ed.name] = 0;
+          app.data.editors[ed.name] += ed.total_seconds;
+        });
+      }
+    });
+
+    // Calculate Favorite Day
+    const dayTotals = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    const dayCounts = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+    const dayNames = [
+      "Sunday",
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+    ];
+
+    app.data.daily.forEach((d) => {
+      const day = d.date.getDay();
+      dayTotals[day] += d.stats.total_seconds;
+      dayCounts[day]++;
+    });
+
+    let bestDayIndex = 0;
+    let maxAvg = 0;
+    for (let i = 0; i < 7; i++) {
+      const avg = dayCounts[i] ? dayTotals[i] / dayCounts[i] : 0;
+      if (avg > maxAvg) {
+        maxAvg = avg;
+        bestDayIndex = i;
+      }
+    }
+    app.data.favoriteDay = dayNames[bestDayIndex];
+    app.data.favoriteDayAvg = maxAvg;
+
+    // Calculate Longest Streak
+    let maxStreak = 0;
+    let currentStreak = 0;
+    app.data.daily.forEach((d) => {
+      if (d.stats.total_seconds > 0) {
+        currentStreak++;
+      } else {
+        if (currentStreak > maxStreak) maxStreak = currentStreak;
+        currentStreak = 0;
+      }
+    });
+    if (currentStreak > maxStreak) maxStreak = currentStreak;
+    app.data.longestStreak = maxStreak;
+  },
+
+  generateSlides: () => {
+    const slides = [];
+
+    // 1. Intro
+    slides.push(`
+            <div class="slide">
+                <h2>Your 2025</h2>
+                <div class="stat-big">Hackatime WRAPPED</div>
+                <p>Let's see what you've been up to.</p>
+            </div>
+        `);
+
+    // 2. Total Hours
+    const totalHours = Math.round(app.data.totalSeconds / 3600);
+    slides.push(`
+            <div class="slide slide-total-hours">
+                <div class="stat-label">Total Time Coding</div>
+                <div class="stat-big">${totalHours}</div>
+                <div class="stat-label">HOURS</div>
+            </div>
+        `);
+
+    // 3. Top 3 Days
+    const sortedDays = [...app.data.daily]
+      .sort((a, b) => b.stats.total_seconds - a.stats.total_seconds)
+      .slice(0, 3);
+    let daysHtml = sortedDays
+      .map(
+        (d, i) => `
+            <div class="list-item">
+                <span class="list-rank">#${i + 1}</span>
+                <span>${d.date.toLocaleDateString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })}</span>
+                <span class="list-val">${(d.stats.total_seconds / 3600).toFixed(
+                  1
+                )}h</span>
+            </div>
+        `
+      )
+      .join("");
+    slides.push(`
+            <div class="slide">
+                <h2>Most Productive Days</h2>
+                ${daysHtml}
+            </div>
+        `);
+
+    // 4. Top 3 Weeks
+    // Group by week
+    const weeks = {};
+    app.data.daily.forEach((d) => {
+      const date = new Date(d.date);
+      const day = date.getDay();
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+      const monday = new Date(date);
+      monday.setDate(diff);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+
+      const key = `${monday.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })} - ${sunday.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })}`;
+      if (!weeks[key]) weeks[key] = 0;
+      weeks[key] += d.stats.total_seconds;
+    });
+    const sortedWeeks = Object.entries(weeks).sort((a, b) => b[1] - a[1]);
+    const topWeeks = sortedWeeks.slice(0, 3);
+    const worstWeek = sortedWeeks[sortedWeeks.length - 1];
+
+    let weeksHtml = topWeeks
+      .map(
+        (w, i) => `
+            <div class="list-item">
+                <span class="list-rank">#${i + 1}</span>
+                <span>${w[0]}</span>
+                <span class="list-val">${(w[1] / 3600).toFixed(1)}h</span>
+            </div>
+        `
+      )
+      .join("");
+    slides.push(`
+            <div class="slide">
+                <h2>Most Productive Weeks</h2>
+                ${weeksHtml}
+            </div>
+        `);
+
+    // 5. Top 3 Months
+    const months = {};
+    app.data.daily.forEach((d) => {
+      const key = d.date.toLocaleDateString(undefined, { month: "long" });
+      if (!months[key]) months[key] = 0;
+      months[key] += d.stats.total_seconds;
+    });
+    const sortedMonths = Object.entries(months)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+    let monthsHtml = sortedMonths
+      .map(
+        (m, i) => `
+            <div class="list-item">
+                <span class="list-rank">#${i + 1}</span>
+                <span>${m[0]}</span>
+                <span class="list-val">${(m[1] / 3600).toFixed(1)}h</span>
+            </div>
+        `
+      )
+      .join("");
+    slides.push(`
+            <div class="slide">
+                <h2>Most Productive Months</h2>
+                ${monthsHtml}
+            </div>
+        `);
+
+    // 6. Favorite Language
+    const sortedLangs = Object.entries(app.data.languages).sort(
+      (a, b) => b[1] - a[1]
+    );
+    const topLang = sortedLangs[0] || ["None", 0];
+    slides.push(`
+            <div class="slide slide-lang">
+                <div class="stat-label">Favorite Language</div>
+                <div class="stat-big">${topLang[0]}</div>
+                <p>${(topLang[1] / 3600).toFixed(1)} hours</p>
+            </div>
+        `);
+
+    // 8. Favorite Day
+    slides.push(`
+        <div class="slide">
+            <div class="stat-label">Favorite Day</div>
+            <div class="stat-big">${app.data.favoriteDay}</div>
+            <p>Average: ${(app.data.favoriteDayAvg / 3600).toFixed(1)} hours</p>
+        </div>
+    `);
+
+    // 9. Most Unproductive Week
+    if (worstWeek) {
+      slides.push(`
+                <div class="slide">
+                    <h2>Most Unproductive Week</h2>
+                    <div class="stat-big" style="font-size: 3rem;">${
+                      worstWeek[0]
+                    }</div>
+                    <p>Only ${(worstWeek[1] / 3600).toFixed(1)} hours</p>
+                    <p>We all need a break!</p>
+                </div>
+            `);
+    }
+
+    // 9. Longest Streak
+    slides.push(`
+            <div class="slide">
+                <div class="stat-label">Longest Streak</div>
+                <div class="stat-big">${app.data.longestStreak}</div>
+                <div class="stat-label">DAYS</div>
+            </div>
+        `);
+
+    // 10. Outro
+    slides.push(`
+            <div class="slide">
+                <h2>That's a wrap!</h2>
+                <p>See you next year.</p>
+                <button onclick="app.downloadSummaryImage()" style="margin-bottom: 1rem;">Download Summary</button>
+                <button onclick="location.reload()">Start Over</button>
+            </div>
+        `);
+
+    app.slides = slides;
+    document.getElementById("slide-container").innerHTML = slides.join("");
+
+    // Hide all slides initially
+    const slideEls = document.querySelectorAll(".slide");
+    slideEls.forEach((el) => (el.style.display = "none"));
+  },
+
+  downloadSummaryImage: () => {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+
+    // Base dimensions
+    const width = 1080;
+    const height = 1920;
+
+    // Scale up for better resolution (4x)
+    const scale = 4;
+    canvas.width = width * scale;
+    canvas.height = height * scale;
+    ctx.scale(scale, scale);
+
+    const colors = [
+      "#ec3750",
+      "#ff8c37",
+      "#f1c40f",
+      "#33d6a6",
+      "#5bc0de",
+      "#338eda",
+      "#a633d6",
+      "#8492a6",
+    ];
+
+    // Background
+    ctx.fillStyle = "#121212";
+    ctx.fillRect(0, 0, width, height);
+
+    // --- Header Section ---
+
+    // "2025" Graphic
+    ctx.save();
+    ctx.translate(150, 400);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillStyle = colors[6]; // Purple
+    ctx.font = "bold 300px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("2025", 0, 0);
+    ctx.restore();
+
+    // Cover Art
+    const coverX = 300;
+    const coverY = 100;
+    const coverSize = 550;
+
+    ctx.fillStyle = "#1a1a1a";
+    ctx.fillRect(coverX, coverY, coverSize, coverSize);
+
+    // Abstract Pattern
+    for (let i = 0; i < 40; i++) {
+      ctx.fillStyle = colors[i % colors.length];
+      const w = Math.random() * 300 + 50;
+      const h = 25;
+      const x = coverX + Math.random() * (coverSize - w);
+      const y = coverY + Math.random() * (coverSize - h);
+      ctx.globalAlpha = 0.8;
+      ctx.fillRect(x, y, w, h);
+    }
+    ctx.globalAlpha = 1.0;
+
+    // Overlay text
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 60px sans-serif";
+    ctx.textAlign = "center";
+    ctx.shadowColor = "rgba(0,0,0,0.5)";
+    ctx.shadowBlur = 10;
+    ctx.fillText(
+      "HACKATIME",
+      coverX + coverSize / 2,
+      coverY + coverSize / 2 - 30
+    );
+    ctx.fillText(
+      "WRAPPED",
+      coverX + coverSize / 2,
+      coverY + coverSize / 2 + 40
+    );
+    ctx.shadowBlur = 0;
+
+    // --- Data Calculation ---
+
+    // 1. Top Languages
+    const sortedLangs = Object.entries(app.data.languages)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    // 2. Top Days
+    const sortedDays = [...app.data.daily]
+      .sort((a, b) => b.stats.total_seconds - a.stats.total_seconds)
+      .slice(0, 3)
+      .map((d) => [
+        d.date.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        }),
+        d.stats.total_seconds,
+      ]);
+
+    // 3. Total Hours
+    const totalHours = Math.round(app.data.totalSeconds / 3600);
+
+    // 4. Longest Streak
+    const longestStreak = app.data.longestStreak;
+
+    // 5. Most Productive Month
+    const months = {};
+    app.data.daily.forEach((d) => {
+      const key = d.date.toLocaleDateString(undefined, { month: "long" });
+      if (!months[key]) months[key] = 0;
+      months[key] += d.stats.total_seconds;
+    });
+    const sortedMonths = Object.entries(months).sort((a, b) => b[1] - a[1]);
+    const topMonth = sortedMonths[0] || ["None", 0];
+
+    // 6. Least Productive Week
+    const weeks = {};
+    app.data.daily.forEach((d) => {
+      const date = new Date(d.date);
+      const day = date.getDay();
+      const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+      const monday = new Date(date);
+      monday.setDate(diff);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const key = `${monday.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })} - ${sunday.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })}`;
+      if (!weeks[key]) weeks[key] = 0;
+      weeks[key] += d.stats.total_seconds;
+    });
+    const sortedWeeks = Object.entries(weeks).sort((a, b) => b[1] - a[1]);
+    const worstWeek = sortedWeeks[sortedWeeks.length - 1] || ["None", 0];
+
+    // --- Grid Layout ---
+    const startY = 750;
+    const gap = 40;
+    const margin = 50;
+    const boxWidth = (width - margin * 2 - gap) / 2;
+    const boxHeight = 320;
+
+    const drawBox = (col, row, color, title, renderContent) => {
+      const x = margin + col * (boxWidth + gap);
+      const y = startY + row * (boxHeight + gap);
+
+      ctx.fillStyle = color;
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(x, y, boxWidth, boxHeight, 20);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x, y, boxWidth, boxHeight);
+      }
+
+      // Title
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.font = "bold 24px sans-serif";
+      ctx.textAlign = "left";
+      ctx.fillText(title.toUpperCase(), x + 25, y + 40);
+
+      // Content
+      renderContent(x, y, boxWidth, boxHeight, "#ffffff");
+    };
+
+    // Row 1
+    // Box 1: Top 3 Languages (0, 0) - Red
+    drawBox(0, 0, colors[0], "Top Languages", (x, y, w, h, textColor) => {
+      sortedLangs.forEach((item, i) => {
+        const yPos = y + 100 + i * 70;
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.font = "bold 40px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`#${i + 1}`, x + 25, yPos);
+
+        ctx.fillStyle = textColor;
+        ctx.fillText(item[0], x + 90, yPos);
+      });
+    });
+
+    // Box 2: Least Productive Week (1, 0) - Blue
+    drawBox(1, 0, colors[5], "Least Productive", (x, y, w, h, textColor) => {
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "center";
+      ctx.font = "bold 80px sans-serif";
+      ctx.fillText((worstWeek[1] / 3600).toFixed(1), x + w / 2, y + h / 2);
+      ctx.font = "bold 24px sans-serif";
+      ctx.fillText("HOURS", x + w / 2, y + h / 2 + 40);
+      ctx.font = "bold 20px sans-serif";
+      ctx.fillText(worstWeek[0], x + w / 2, y + h / 2 + 80);
+    });
+
+    // Row 2
+    // Box 3: Total Hours (0, 1) - Yellow
+    drawBox(0, 1, colors[2], "Total Hours", (x, y, w, h, textColor) => {
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "center";
+      ctx.font = "bold 100px sans-serif";
+      ctx.fillText(totalHours, x + w / 2, y + h / 2 + 20);
+      ctx.font = "bold 30px sans-serif";
+      ctx.fillText("HOURS", x + w / 2, y + h / 2 + 70);
+    });
+
+    // Box 4: Top 3 Days (1, 1) - Green
+    drawBox(1, 1, colors[3], "Top Days", (x, y, w, h, textColor) => {
+      sortedDays.forEach((item, i) => {
+        const yPos = y + 100 + i * 70;
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.font = "bold 40px sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText(`#${i + 1}`, x + 25, yPos);
+
+        ctx.fillStyle = textColor;
+        ctx.fillText(item[0], x + 90, yPos);
+      });
+    });
+
+    // Row 3
+    // Box 5: Longest Streak (0, 2) - Light Blue
+    drawBox(0, 2, colors[4], "Longest Streak", (x, y, w, h, textColor) => {
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "center";
+      ctx.font = "bold 100px sans-serif";
+      ctx.fillText(longestStreak, x + w / 2, y + h / 2 + 20);
+      ctx.font = "bold 30px sans-serif";
+      ctx.fillText("DAYS", x + w / 2, y + h / 2 + 70);
+    });
+
+    // Box 6: Most Productive Month (1, 2) - Purple
+    drawBox(1, 2, colors[6], "Best Month", (x, y, w, h, textColor) => {
+      ctx.fillStyle = textColor;
+      ctx.textAlign = "center";
+      ctx.font = "bold 60px sans-serif";
+      ctx.fillText(topMonth[0], x + w / 2, y + h / 2 + 10);
+      ctx.font = "bold 30px sans-serif";
+      ctx.fillText(
+        `${(topMonth[1] / 3600).toFixed(0)} HOURS`,
+        x + w / 2,
+        y + h / 2 + 60
+      );
+    });
+
+    // --- Footer ---
+    const footerY = height - 50;
+    ctx.textAlign = "center";
+    ctx.font = "30px sans-serif";
+
+    const text1 = "Get yours at ";
+    const text2 = "hackatime-wrapped.netlify.app";
+
+    const text1Width = ctx.measureText(text1).width;
+    const text2Width = ctx.measureText(text2).width;
+    const totalWidth = text1Width + text2Width + 40; // +40 for icon space
+
+    const startX = (width - totalWidth) / 2;
+
+    // Clock Icon
+    const clockX = startX;
+    const clockY = footerY - 10;
+    ctx.beginPath();
+    ctx.arc(clockX + 15, clockY, 15, 0, 2 * Math.PI);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(clockX + 15, clockY - 8);
+    ctx.lineTo(clockX + 15, clockY);
+    ctx.lineTo(clockX + 22, clockY + 5);
+    ctx.stroke();
+
+    // Text
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "left";
+    ctx.fillText(text1, startX + 40, footerY);
+
+    ctx.fillStyle = colors[4]; // Highlight color
+    ctx.fillText(text2, startX + 40 + text1Width, footerY);
+
+    // Download
+    const link = document.createElement("a");
+    link.download = "hackatime-wrapped-2025.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  },
+  showSlide: (index) => {
+    const slideEls = document.querySelectorAll(".slide");
+    if (index >= 0 && index < slideEls.length) {
+      slideEls.forEach((el) => (el.style.display = "none"));
+      slideEls[index].style.display = "flex";
+      app.currentSlide = index;
+    }
+  },
+
+  nextSlide: () => {
+    app.showSlide(app.currentSlide + 1);
+  },
+
+  prevSlide: () => {
+    app.showSlide(app.currentSlide - 1);
+  },
+};
+
+app.init();

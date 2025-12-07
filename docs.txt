@@ -1,0 +1,202 @@
+All the API Commands
+Here are all the ways you can get data from Hackatime with code.
+
+How to Log In
+All requests need your API key:
+
+Best way: Authorization: Bearer YOUR_API_KEY in the header
+Other way: Add ?api_key=YOUR_API_KEY to the URL
+Get your API key from Hackatime settings.
+
+For WakaTime Tools
+These work with existing WakaTime apps and libraries.
+
+Get Today's Time
+GET /api/hackatime/v1/users/{user_id}/statusbar/today
+Shows how much you've coded today.
+
+What you get back:
+
+{
+  "data": {
+    "grand_total": {
+      "total_seconds": 7200.0,
+      "text": "2 hrs"
+    }
+  }
+}
+Hackatime-Only Commands
+These are special to Hackatime.
+
+Your Coding Stats
+GET /api/v1/stats
+Get how much you've coded overall.
+
+Someone Else's Stats
+GET /api/v1/users/{username}/stats
+See someone else's public coding stats.
+
+What you get back:
+
+{
+  "user": "username",
+  "total_seconds": 86400,
+  "languages": [
+    { "name": "Python", "seconds": 43200 },
+    { "name": "JavaScript", "seconds": 28800 }
+  ],
+  "projects": [{ "name": "my-app", "seconds": 36000 }]
+}
+Your Raw Activity Data
+GET /api/v1/my/heartbeats
+GET /api/v1/my/heartbeats/most_recent
+Get the raw data about when you coded.
+
+Options you can add:
+
+start - Start date
+end - End date
+limit - How many results (max 100)
+Find Users
+GET /api/v1/users/lookup_email/{email}
+GET /api/v1/users/lookup_slack_uid/{slack_uid}
+Find users by their email or Slack ID.
+
+User Trust Factor
+GET /api/v1/users/{username}/trust_factor
+Get a user's trust factor.
+
+What you get back:
+
+{
+  "trust_level": "yellow",
+  "trust_value": 0
+}
+Try These Examples
+See Your Recent Activity
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "https://hackatime.hackclub.com/api/v1/my/heartbeats?limit=10"
+See Today's Time
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "https://hackatime.hackclub.com/api/hackatime/v1/users/current/statusbar/today"
+Limits
+Heartbeats: WakaTime plugins wait 30 seconds between sends
+API Requests: No hard limits, but don't go crazy
+When Things Go Wrong
+Errors look like this:
+
+{
+  "error": "Invalid API key"
+}
+Common problems:
+
+401 - Bad or missing API key
+404 - That thing doesn't exist
+500 - Something broke on our end
+
+
+
+
+
+
+
+
+
+
+
+
+How to Use Our Code API
+The Hackatime API lets you get your coding data with code. It works just like WakaTime's API.
+
+Quick Start
+Get your API key from Hackatime settings
+Make requests to: https://hackatime.hackclub.com/api/v1/
+How to Log In With Code
+Put your API key in your requests like this:
+
+Best way (Authorization Header):
+
+Authorization: Bearer YOUR_API_KEY
+Other way (in the URL):
+
+?api_key=YOUR_API_KEY
+Try It Out
+Get your coding stats:
+
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  https://hackatime.hackclub.com/api/v1/users/{your-username}/stats
+Works With WakaTime Tools
+Since Hackatime works like WakaTime's API, you can:
+
+Use any WakaTime code libraries
+Point WakaTime tools to Hackatime
+Move data between WakaTime and Hackatime
+Popular Endpoints
+Your Stats: /api/v1/stats - How much you've coded (Admin Only)
+Your Heartbeats: /api/v1/my/heartbeats - Raw coding activity
+User Stats: /api/v1/users/{username}/stats - Any user's public stats
+More Details
+Want to see all the API commands? Check out our complete API list. Most things work exactly like WakaTime's API.
+
+
+
+
+Hackatime API Endpoints
+All Hackatim API endpoints and their respective controller and action
+Controller#Action
+api/v1/stats#show
+GET    
+/api/v1/stats(.:format)                                      
+api/v1/stats#user_stats
+GET    
+/api/v1/users/:username/stats(.:format)                      
+api/v1/stats#user_spans
+GET    
+/api/v1/users/:username/heartbeats/spans(.:format)           
+api/v1/stats#trust_factor
+GET    
+/api/v1/users/:username/trust_factor(.:format)               
+api/v1/stats#user_projects
+GET    
+/api/v1/users/:username/projects(.:format)                   
+api/v1/stats#user_project
+GET    
+/api/v1/users/:username/project/:project_name(.:format)      
+api/v1/stats#user_projects_details
+GET    
+/api/v1/users/:username/projects/details(.:format)           
+api/v1/users#lookup_email {email: /[^\/]+/}
+GET    
+/api/v1/users/lookup_email/:email(.:format)                  
+api/v1/users#lookup_slack_uid
+GET    
+/api/v1/users/lookup_slack_uid/:slack_uid(.:format)          
+api/v1/external_slack#create_user
+POST   
+/api/v1/external/slack/oauth(.:format)                       
+api/v1/ysws_programs#claim
+POST   
+/api/v1/ysws_programs/claim(.:format)                        
+api/v1/ysws_programs#index
+GET    
+/api/v1/ysws_programs(.:format)                              
+api/v1/my/heartbeats#most_recent
+GET    
+/api/v1/my/heartbeats/most_recent(.:format)                  
+api/v1/my/heartbeats#index
+GET    
+/api/v1/my/heartbeats(.:format)                              
+api/v1/authenticated/me#index
+GET    
+/api/v1/authenticated/me(.:format)                           
+api/v1/authenticated/hours#index
+GET    
+/api/v1/authenticated/hours(.:format)                        
+api/v1/authenticated/streak#show
+GET    
+/api/v1/authenticated/streak(.:format)                       
+api/v1/authenticated/projects#index
+GET    
+/api/v1/authenticated/projects(.:format)                     
+
+
